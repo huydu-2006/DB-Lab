@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    @apply bg-white dark:bg-slate-950;
+  }
+}
+
+@utility pitch-bg {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgb(255 255 255 / 0.03) 0 48px,
+      transparent 48px 96px
+    ),
+    radial-gradient(120% 70% at 50% 0%, #17663c 0%, transparent 65%),
+    linear-gradient(160deg, #0e4a2c 0%, #072519 100%);
+}
