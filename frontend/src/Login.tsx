@@ -1,4 +1,4 @@
-function Login() {
+function Login({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="grid min-h-svh md:grid-cols-[1.1fr_1fr]">
       <aside
@@ -77,6 +77,7 @@ function Login() {
           <button
             type="submit"
             className="rounded-lg bg-green-700 px-4 py-3 font-semibold text-white transition-colors hover:bg-green-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-700 dark:bg-green-400 dark:text-green-950 dark:hover:bg-green-300 dark:focus-visible:outline-green-400"
+            onClick={() => onLogin()}
           >
             Sign in
           </button>
