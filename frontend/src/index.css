@@ -1,22 +1,49 @@
 @import "tailwindcss";
 
+/*
+ * Light-only theme.
+ * The `dark:` variant is redefined as class-based (`:where(.dark, .dark *)`)
+ * and that class is never applied, so the app always renders in the light
+ * palette until dark mode is intentionally reintroduced.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme static {
+  /* Surfaces */
+  --color-canvas: #f7faf8;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef4f0;
+
+  /* Text */
+  --color-ink: #10231a;
+  --color-ink-muted: #4f675a;
+
+  /* Lines */
+  --color-line: #dfe8e2;
+
+  /* Fresh pitch green accent */
+  --color-brand: #16a34a;
+  --color-brand-strong: #15803d;
+  --color-brand-soft: #dcfce7;
+
+  /* Feedback */
+  --color-danger: #ef4444;
+}
+
 @layer base {
   html {
-    color-scheme: light dark;
+    color-scheme: light;
   }
 
   body {
-    @apply bg-white dark:bg-slate-950;
+    @apply bg-canvas text-ink antialiased;
   }
 }
 
+/* Sunlit pitch backdrop used by the login hero. */
 @utility pitch-bg {
   background:
-    repeating-linear-gradient(
-      90deg,
-      rgb(255 255 255 / 0.03) 0 48px,
-      transparent 48px 96px
-    ),
-    radial-gradient(120% 70% at 50% 0%, #17663c 0%, transparent 65%),
-    linear-gradient(160deg, #0e4a2c 0%, #072519 100%);
+    radial-gradient(70% 60% at 0% 0%, rgb(167 243 208 / 0.5) 0%, transparent 70%),
+    radial-gradient(60% 60% at 100% 100%, rgb(153 246 228 / 0.55) 0%, transparent 70%),
+    linear-gradient(135deg, #ecfdf5 0%, #f8faf9 55%, #f0fdfa 100%);
 }
