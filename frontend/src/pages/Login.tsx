@@ -1,52 +1,98 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Logo from '../Logo'
 import { Field, inputClass, inputErrorClass } from '../components/ui/Field'
 import {
   DEMO_EMAIL,
   DEMO_PASSWORD,
   validateCredentials,
+  type Errors,
 } from '../lib/auth'
-import type { Errors } from '../lib/auth'
-import { AlertIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon, SpinnerIcon } from '../components/ui/Icons'
+import {
+  ApiError,
+  ApiUnavailableError,
+  authApi,
+  saveSession,
+  type AuthSession,
+} from '../lib/api'
+import {
+  AlertIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  MailIcon,
+  SpinnerIcon,
+} from '../components/ui/Icons'
 
-function Login({ onLogin }: { onLogin: () => void }) {
+type Mode = 'signin' | 'signup'
+
+function Login({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  const [mode, setMode] = useState<Mode>('signin')
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [remember, setRemember] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState<Errors>({})
   const [submitting, setSubmitting] = useState(false)
 
-  // The stub resolves on a timer; clear it if the form unmounts first.
-  useEffect(() => {
-    if (!submitting) return
-    const timer = window.setTimeout(() => {
-      if (email.trim().toLowerCase() !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
-        setSubmitting(false)
-        setErrors({
-          form: 'Those details do not match. Use the demo credentials below.',
-        })
-        return
-      }
-      onLogin()
-    }, 550)
-    return () => window.clearTimeout(timer)
-  }, [submitting, email, password, onLogin])
+  const switchMode = (next: Mode) => {
+    setMode(next)
+    setErrors({})
+  }
 
-  const submit = () => {
+  const submit = async () => {
     const nextErrors = validateCredentials({ email, password })
+    if (mode === 'signup' && name.trim().length < 2) {
+      nextErrors.name = 'Enter your name.'
+    }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
       return
     }
 
     setErrors({})
-    // Stub: no request is sent. The effect below resolves after a short delay
-    // so the pending state is visible.
     setSubmitting(true)
+    try {
+      // The local dev API does not check passwords — credentials are handled
+      // by Clerk (email/password or Google OAuth) in production, where the
+      // token comes from <ClerkProvider> and is verified via /api/auth/sync.
+      const session =
+        mode === 'signin'
+          ? await authApi.devLogin(email.trim().toLowerCase())
+          : await authApi.devRegister({
+              email: email.trim().toLowerCase(),
+              full_name: name.trim(),
+            })
+      saveSession(session)
+      onLogin(session)
+    } catch (error) {
+      if (error instanceof ApiUnavailableError) {
+        // Backend offline: keep the old demo flow usable for offline dev.
+        if (
+          email.trim().toLowerCase() === DEMO_EMAIL &&
+          password === DEMO_PASSWORD
+        ) {
+          onLogin({ token: 'demo', user: demoUser() })
+          return
+        }
+        setErrors({
+          form: `Could not reach the API backend. Start it at ${'localhost:8000'}, or use the demo credentials below.`,
+        })
+      } else if (error instanceof ApiError) {
+        const hint =
+          mode === 'signin' && error.status === 404
+            ? ' (No account with this email yet — switch to Sign up.)'
+            : ''
+        setErrors({ form: `${error.detail}${hint}` })
+      } else {
+        setErrors({ form: 'Something went wrong. Please try again.' })
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const fillDemo = () => {
+    setMode('signin')
     setEmail(DEMO_EMAIL)
     setPassword(DEMO_PASSWORD)
     setErrors({})
@@ -97,16 +143,41 @@ function Login({ onLogin }: { onLogin: () => void }) {
           noValidate
           onSubmit={(event) => {
             event.preventDefault()
-            submit()
+            void submit()
           }}
           className="w-full max-w-sm rounded-2xl border border-line bg-surface p-6 shadow-sm md:p-8"
         >
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Welcome back
+            {mode === 'signin' ? 'Welcome back' : 'Create your account'}
           </h1>
           <p className="mt-1.5 text-sm text-ink-muted">
-            Sign in to manage your pitches and bookings.
+            {mode === 'signin'
+              ? 'Sign in to manage your pitches and bookings.'
+              : 'Sign up to book pitches and keep your match history.'}
           </p>
+
+          <div
+            role="tablist"
+            aria-label="Authentication mode"
+            className="mt-5 grid grid-cols-2 rounded-xl border border-line bg-surface-muted p-1"
+          >
+            {(['signin', 'signup'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="tab"
+                aria-selected={mode === option}
+                onClick={() => switchMode(option)}
+                className={`h-9 rounded-lg text-sm font-semibold transition ${
+                  mode === option
+                    ? 'bg-brand-strong text-white shadow-sm'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                {option === 'signin' ? 'Sign in' : 'Sign up'}
+              </button>
+            ))}
+          </div>
 
           {errors.form && (
             <p
@@ -119,6 +190,25 @@ function Login({ onLogin }: { onLogin: () => void }) {
           )}
 
           <div className="mt-6 flex flex-col gap-4">
+            {mode === 'signup' && (
+              <Field label="Full name" htmlFor="name" error={errors.name}>
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="Nguyễn Văn A"
+                  value={name}
+                  onChange={(event) => {
+                    setName(event.target.value)
+                    setErrors((current) => ({ ...current, name: undefined, form: undefined }))
+                  }}
+                  aria-invalid={Boolean(errors.name)}
+                  className={`${inputClass} ${errors.name ? inputErrorClass : ''}`}
+                />
+              </Field>
+            )}
+
             <Field label="Email" htmlFor="email" error={errors.email}>
               <div className="relative">
                 <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
@@ -146,7 +236,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                   placeholder="••••••••"
                   value={password}
                   onChange={(event) => {
@@ -172,24 +262,11 @@ function Login({ onLogin }: { onLogin: () => void }) {
               </div>
             </Field>
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm text-ink-muted">
-                <input
-                  type="checkbox"
-                  name="remember"
-                  checked={remember}
-                  onChange={(event) => setRemember(event.target.checked)}
-                  className="size-4 rounded border-line accent-brand"
-                />
-                Remember me
-              </label>
-              <a
-                href="#"
-                className="text-xs font-medium text-brand-strong hover:text-brand hover:underline"
-              >
-                Forgot password?
-              </a>
-            </div>
+            <p className="text-xs leading-relaxed text-ink-muted">
+              {mode === 'signin'
+                ? 'Accounts live in the MySQL database via the FastAPI backend. The dev API signs you in on email alone; passwords and Google OAuth are verified by Clerk in production.'
+                : 'Creating an account stores your profile in the MySQL USERS table.'}
+            </p>
 
             <button
               type="submit"
@@ -197,7 +274,13 @@ function Login({ onLogin }: { onLogin: () => void }) {
               className="mt-1 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-strong px-4 text-sm font-semibold text-white shadow-sm shadow-brand-strong/30 transition hover:bg-brand focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/35 active:translate-y-px disabled:cursor-wait disabled:bg-brand-strong/80"
             >
               {submitting && <SpinnerIcon className="size-4" />}
-              {submitting ? 'Signing in…' : 'Sign in'}
+              {submitting
+                ? mode === 'signin'
+                  ? 'Signing in…'
+                  : 'Creating account…'
+                : mode === 'signin'
+                  ? 'Sign in'
+                  : 'Create account'}
             </button>
           </div>
 
@@ -207,6 +290,9 @@ function Login({ onLogin }: { onLogin: () => void }) {
             </p>
             <p className="mt-1 font-mono text-xs text-ink">
               {DEMO_EMAIL} · {DEMO_PASSWORD}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              Works when the API backend is not running (offline demo mode).
             </p>
             <button
               type="button"
@@ -220,6 +306,20 @@ function Login({ onLogin }: { onLogin: () => void }) {
       </main>
     </div>
   )
+}
+
+/** Offline demo session used when the API backend is unreachable. */
+function demoUser(): AuthSession['user'] {
+  return {
+    user_id: 0,
+    clerk_user_id: 'demo',
+    full_name: 'Stadium Manager',
+    email: DEMO_EMAIL,
+    phone: null,
+    auth_provider: 'CLERK',
+    role: 'ADMIN',
+    team_name: null,
+  }
 }
 
 export default Login

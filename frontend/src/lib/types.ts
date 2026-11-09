@@ -60,3 +60,6 @@ export type BookingDraft = {
 }
 
 export type Credentials = { email: string; password: string }
+
+/** FastAPI error responses have the shape `{ detail: string }`. */
+export type ApiErrorBody = { detail?: string }
