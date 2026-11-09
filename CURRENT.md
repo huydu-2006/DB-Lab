@@ -47,3 +47,57 @@ Delivered the database design — schema, constraints, triggers, indexes, views,
 - Money: `DECIMAL(12,2)` VND, whole-VND app-side, rounded to 1000 (frontend does `Math.round(x/1000)*1000`).
 - All operational tables carry `created_at`/`updated_at` (`ON UPDATE CURRENT_TIMESTAMP`).
 - Errors crafted so later steps stay consistent with files that already exist (do not renumber/replace 01_schema.sql; extend it or add `03_*.sql` migrations).
+
+---
+
+# Task 2: Sign in / Sign up with the Database ✅ (2026-11-09)
+
+Implemented the full authentication flow against MySQL, per the finalized PLAN.md stack (Clerk + Google OAuth in production, dev fallback without a Clerk account).
+
+## Delivered
+
+**Backend (new, `backend/`):**
+- `requirements.txt`, `.env.example`, `.env` (local, gitignored — MySQL root password obtained from user), `pytest.ini`.
+- `app/core/config.py` — pydantic-settings; `clerk_enabled` switches auth mode.
+- `app/core/security.py` — token verification + RBAC: Clerk RS256 via `PyJWKClient` (JWKS caching) when `CLERK_JWKS_URL` is set; local HS256 dev tokens otherwise. `derive_provider()` maps Clerk `id.oauth_google*` claims → `GOOGLE`. Dependencies: `get_current_claims`, `get_current_user` (DB lookup via `clerk_user_id`), `require_role('STAFF', 'ADMIN')`-style RBAC factory.
+- `app/db/session.py` — SQLAlchemy 2.0 engine (explicit parameterized SQL per PLAN.md, no ORM) + user fetch helpers.
+- `app/routers/auth.py`:
+  - `POST /api/auth/sync` — upserts the Clerk/Google identity into `USERS` (first sign-in = implicit sign-up with `CUSTOMER` role; later sign-ins refresh profile fields). Idempotent by `clerk_user_id`.
+  - `GET /api/auth/me` — DB profile + role for the Bearer token.
+  - Dev-only routers (mounted only while `CLERK_JWKS_URL` empty): `POST /api/auth/dev/register` (409 duplicate email, implicit 422 validation) and `POST /api/auth/dev/login` (404 unknown email) — real DB-backed sign-up/sign-in without Clerk; passwords are NOT checked locally (Clerk's job in production; dev tokens carry the same claim contract: `sub`/`email`/`name`).
+- `app/main.py` — FastAPI app, CORS for Vite origins, conditional dev-router mount, `GET /api/health` reporting auth mode.
+- `tests/` — `test_security.py` (8 unit tests: token roundtrip, expired/garbage/wrong-secret/missing-sub rejection, provider derivation), `test_auth_api.py` (11 DB-backed tests: register persists to USERS, duplicate 409, login→profile+token→/me works, sync creates/refreshes without duplicating, sync without email claim 400, /me guards 401), `conftest.py` (auto-creates `bk88_stadium_test`, re-applies `01_schema.sql` per session with proper DELIMITER handling, cleans USERS per test, skips cleanly if MySQL unreachable).
+
+**Frontend:**
+- `src/lib/api.ts` (new) — typed API client (fetch wrapper with `ApiError`/`ApiUnavailableError`), `authApi.devLogin/devRegister/health`, sessionStorage session helpers.
+- `src/pages/Login.tsx` — Sign in / Sign up tabs; calls the backend dev endpoints; friendly errors (404 → suggests Sign up; 409 duplicate); offline fallback to the old demo credentials when the API is unreachable.
+- `src/App.tsx` — session state (lazy restore from sessionStorage), logout clears it.
+- `src/lib/auth.ts` — `Errors` type extended with `name`; demo-credential comments updated (offline-only).
+- `.env.example` with `VITE_API_URL`.
+
+## Live verification (local MySQL 26.7, service MySQL267, root password from user)
+
+- `01_schema.sql` **deployed to `bk88_stadium`** (all 8 tables + 3 views — first live DDL validation).
+- pytest: **19 passed** (8 unit + 11 DB-backed via `BK88_TEST_DATABASE_URL=...bk88_stadium_test`; the test DB is recreated from the schema each session).
+- Frontend: **46 vitest passed**, `tsc -b` + `vite build` clean, eslint clean (fixed one `set-state-in-effect` by using lazy `useState` init).
+- uvicorn smoke test against the real DB: /health → dev-fallback; register → row id 1 in USERS; login → token → /me → profile; unknown email → 404; missing token → 401. Smoke user deleted afterwards; uvicorn stopped.
+- **Bonus — closed previous open item: live trigger verification** (rolled-back transaction, real DB untouched): overlapping INSERT blocked (ER_SIGNAL_EXCEPTION 1644 with 'Slot conflict…'), adjacent half-open slot accepted, overlapping UPDATE blocked, CANCELLED frees the slot for rebooking, and `trg_bsvc_recalc_ins/upd/del` maintain `service_amount`/`total_amount` exactly (20k→30k→0 with correct totals).
+- Found + documented MySQL 1442 limitation: `BOOKING_SERVICES` recalc triggers UPDATE `BOOKINGS`, so `INSERT … SELECT … FROM BOOKINGS` into `BOOKING_SERVICES` fails; app must insert line items with plain VALUES (noted in `backend/sql/DESIGN.md` §Invoice sync triggers).
+
+## Bugs found & fixed during verification
+
+- `get_current_user` initially used `next(get_connection())` — the unreferenced generator is GC'd immediately, closing the connection mid-request (ResourceClosedError). Replaced with direct `engine.connect()`; removed the unused `get_connection` helper.
+- conftest schema applier initially split statements on `;` and a `--` comment line contained a semicolon, fragmenting the BOOKINGS DDL; now strips full-line comments first. Also made schema apply idempotent (DROP/CREATE test DB per session).
+- `URL.set(database=None)` doesn't remove the database name (None = unchanged) — building the server URL with `URL.create` instead.
+
+## Conventions / notes for next steps
+
+- Run backend: `cd backend && python -m uvicorn app.main:app --reload`. Run tests: `BK88_TEST_DATABASE_URL=... python -m pytest` (auto-skips without MySQL).
+- `.env` contains the real DB password — **gitignored**, never commit it. Test credentials: DB `bk88_stadium_test` (schema re-applied by conftest; disposable).
+- When Clerk is adopted: set `CLERK_JWKS_URL` + `CLERK_ISSUER`, frontend switches to `@clerk/clerk-react` per PLAN.md; `POST /api/auth/sync` then upserts Google OAuth users (`derive_provider` already handles it). Plan items marked remaining: seed data (`02_seed.sql`), bookings/fields/payments/reports routers, frontend live-data wiring.
+
+---
+
+# Task 3: README "How to run this project" ✅
+
+Rewrote `README.md` (was only a title) with clone-to-running instructions in order: prerequisites → clone → schema deploy (`mysql < backend/sql/01_schema.sql`, Workbench alternative) → backend venv/deps/`.env`/uvicorn (+ auth-mode note) → frontend `npm install`/`.env`/`npm run dev` → sign-up/sign-in walkthrough with DB verification query → test commands (backend `BK88_TEST_DATABASE_URL` pytest, frontend vitest/build/lint) → troubleshooting table → project structure. Uses `YOUR_MYSQL_PASSWORD` placeholders — the real password stays only in the gitignored `backend/.env`.

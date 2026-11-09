@@ -48,6 +48,8 @@ The schema is in 3NF/BCNF:
 
 `trg_bsvc_recalc_ins/upd/del` on `BOOKING_SERVICES` recompute `BOOKINGS.service_amount = SUM(subtotal)` after every line-item change. This does fire the booking UPDATE trigger, which is a no-op because the time columns didn't change.
 
+> MySQL 1442 constraint (verified live): these triggers `UPDATE BOOKINGS`, so a statement that both inserts into `BOOKING_SERVICES` and *reads* `BOOKINGS` in the same statement (`INSERT … SELECT booking_id … FROM BOOKINGS`) fails with error 1442. The application must insert line items with plain `VALUES` (after resolving `booking_id`) — which is the only pattern the API uses.
+
 ### Recurring bookings
 
 Weekly recurring reservations are expanded **in the application** into individual `BOOKINGS` rows inside one transaction (each row gets its own trigger-validated slot). No recurrence metadata is stored; a `recurrence` behavioural field was judged out of scope for the 8-table design fixed in PLAN.md.
