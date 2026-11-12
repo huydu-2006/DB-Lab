@@ -49,7 +49,7 @@ sqlcmd -S localhost\SQLEXPRESS -E -C -Q "USE BK88_STADIUM; SELECT name FROM sys.
 
 ### 3. Seed sample data (optional, recommended)
 
-Populates the 8 pitches, pricing rules, services, sample users and bookings (idempotent, safe to re-run):
+Populates the 8 pitches (including GPS coordinates for the Google Maps location links), pricing rules, services, sample users and bookings (idempotent, safe to re-run):
 
 ```bash
 sqlcmd -S localhost\SQLEXPRESS -E -C -i backend/sql/02_seed.sql

@@ -30,9 +30,11 @@ def seeded(client):  # noqa: ARG001 - client guarantees a clean USERS table
 
         conn.execute(
             text(
-                "INSERT INTO FIELDS (name, address, district, field_type, surface_type, "
+                "INSERT INTO FIELDS (name, address, district, latitude, longitude, "
+                "                    field_type, surface_type, "
                 "                    base_price_per_hour, open_time, close_time) "
-                "VALUES ('Test Pitch', '1 Test St', 'D1', '5v5', 'ARTIFICIAL_TURF', "
+                "VALUES ('Test Pitch', '1 Test St', 'D1', 10.776500, 106.697200, "
+                "        '5v5', 'ARTIFICIAL_TURF', "
                 "        200000, '06:00', '23:00')"
             )
         )
@@ -113,6 +115,9 @@ def test_fields_listed_publicly(client, seeded):  # noqa: ARG001
     assert body["type"] == "5-a-side"
     assert body["surface"] == "Artificial turf"
     assert body["basePricePerHour"] == 200000.0
+    assert body["latitude"] == 10.7765
+    assert body["longitude"] == 106.6972
+    assert fields[1]["latitude"] is None  # coords optional
 
 
 def test_field_availability_counts(client, seeded):

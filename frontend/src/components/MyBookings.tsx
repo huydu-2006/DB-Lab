@@ -3,6 +3,7 @@ import { formatCurrency, formatDate, formatDuration, formatTimeRange } from '../
 import type { Booking } from '../lib/types'
 import { EmptyState } from './ui/Badge'
 import { CalendarIcon, SearchIcon, TrashIcon } from './ui/Icons'
+import { MapLink } from './MapLink'
 
 type MyBookingsProps = {
   bookings: Booking[]
@@ -129,7 +130,12 @@ export function MyBookings({ bookings, onCancel, onBrowse }: MyBookingsProps) {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-ink">{booking.pitchName}</p>
-                    <p className="mt-0.5 text-sm text-ink-muted">{booking.address}</p>
+                    <MapLink
+                      location={{ name: booking.pitchName, address: booking.address }}
+                      className="mt-0.5 block truncate text-sm text-ink-muted transition hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/35"
+                    >
+                      {booking.address}
+                    </MapLink>
                     <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
                       <span className="font-medium text-ink">
                         {formatTimeRange(booking.startTime, booking.durationHours)}

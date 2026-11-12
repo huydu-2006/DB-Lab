@@ -2,6 +2,7 @@ import { formatCurrency } from '../lib/format'
 import type { Pitch } from '../lib/types'
 import { Badge, StatusPill } from './ui/Badge'
 import { CalendarIcon, ClockIcon, PinIcon, StarIcon, UsersIcon } from './ui/Icons'
+import { MapLink } from './MapLink'
 
 type PitchCardProps = {
   pitch: Pitch
@@ -34,10 +35,14 @@ export function PitchCard({ pitch, freeSlots, totalSlots, onBook }: PitchCardPro
           <StatusPill available={available} label={available ? `${freeSlots} free` : 'Fully booked'} />
         </div>
 
-        <p className="mt-1.5 flex items-start gap-1.5 text-sm text-ink-muted">
+        <MapLink
+          location={pitch}
+          label={pitch.name}
+          className="mt-1.5 flex items-start gap-1.5 text-sm text-ink-muted transition hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand/35"
+        >
           <PinIcon className="mt-0.5 size-3.5 shrink-0" />
           <span>{pitch.address}</span>
-        </p>
+        </MapLink>
 
         <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
           <span className="inline-flex items-center gap-1">

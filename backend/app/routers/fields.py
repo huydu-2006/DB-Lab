@@ -17,6 +17,10 @@ def _field_payload(row: dict) -> dict:
         "name": row["name"],
         "address": row["address"],
         "district": row["district"],
+        # WGS-84 coordinates for map links; NULL when unknown (frontend then
+        # links by address text).
+        "latitude": float(row["latitude"]) if row["latitude"] is not None else None,
+        "longitude": float(row["longitude"]) if row["longitude"] is not None else None,
         "type": {"5v5": "5-a-side", "7v7": "7-a-side", "11v11": "11-a-side"}.get(
             row["field_type"], row["field_type"]
         ),
@@ -54,7 +58,8 @@ async def list_fields(
 ) -> list[dict]:
     """List pitches with optional type/status filters (public)."""
     query = (
-        "SELECT field_id, name, address, district, field_type, surface_type, "
+        "SELECT field_id, name, address, district, latitude, longitude, "
+        "       field_type, surface_type, "
         "       base_price_per_hour, rating, review_count, amenities, "
         "       CONVERT(varchar(5), open_time, 108) AS open_time, "
         "       CONVERT(varchar(5), close_time, 108) AS close_time, status "

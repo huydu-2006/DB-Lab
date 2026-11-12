@@ -78,6 +78,27 @@ VALUES (N'Sân Tao Đàn', N'55 Nguyễn Thị Minh Khai, District 1', N'Distric
 GO
 
 -- ----------------------------------------------------------------------------
+-- FIELDS geolocation (WGS-84) — backfills rows seeded before the location
+-- columns existed and fills fresh inserts; the NULL guard makes every
+-- statement idempotent.
+-- ----------------------------------------------------------------------------
+UPDATE dbo.FIELDS SET latitude = 10.803300, longitude = 106.687000
+WHERE name IN (N'BK-88 Arena – Court 1', N'BK-88 Arena – Court 2') AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.770800, longitude = 106.662100
+WHERE name = N'Thống Nhất Field' AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.791000, longitude = 106.746200
+WHERE name = N'Cửu Long Pitch' AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.793800, longitude = 106.708600
+WHERE name = N'Rạch Miễu Pitch' AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.775600, longitude = 106.631400
+WHERE name = N'Phú Thọ Stadium' AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.771500, longitude = 106.690200
+WHERE name = N'Sân Kỳ Hòa' AND latitude IS NULL;
+UPDATE dbo.FIELDS SET latitude = 10.776500, longitude = 106.697200
+WHERE name = N'Sân Tao Đàn' AND latitude IS NULL;
+GO
+
+-- ----------------------------------------------------------------------------
 -- PRICING_RULES — per field: weekday (Mon–Fri) and weekend (Sat–Sun) windows.
 -- Prime time (start >= 17:00): +15% weekday, +25% weekend; weekend off-peak +10%.
 -- ----------------------------------------------------------------------------

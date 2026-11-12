@@ -17,6 +17,9 @@ export type Pitch = {
   name: string
   address: string
   district: string
+  /** WGS-84 coordinates for the Google Maps link; optional dev-fallback data may omit them (address-text search). */
+  lat?: number
+  lng?: number
   type: PitchType
   surface: Surface
   pricePerHour: number

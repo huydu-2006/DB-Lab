@@ -145,6 +145,31 @@ Implemented the full authentication flow against MySQL, per the finalized PLAN.m
 
 ---
 
+# Task 8: Court addresses on Google Maps ✅ (2026-11-09)
+
+User requirement: every court's data must include its Google Maps location so users can find it — starting as a plain link, but designed to survive future map upgrades (embeds, other providers).
+
+## Design decision (the "adapt to upgrades" requirement)
+
+- **Data stays provider-agnostic**: `FIELDS` stores WGS-84 `latitude`/`longitude` (nullable `DECIMAL(9,6)`), which any future provider (Google Maps embed, static tiles, Mapbox, OSM, native navigation) can consume. No Google-specific data (URLs, place IDs) is persisted.
+- **URL construction lives in exactly one module**: `frontend/src/lib/maps.ts` (`buildMapsUrl()`) + the dumb `MapLink` component. Upgrading the map integration later = editing that one file (or component); no data migration, no API change. Uses the keyless Google Maps "Search API" universal URL (`/maps/search/?api=1&query=`), which Google keeps stable across Maps UI updates.
+- Coordinates preferred in the query (exact pin); **address-text fallback** when unknown — so old rows / test data never break the link.
+
+## Deliverables
+
+1. **DB** — `01_schema.sql`: `latitude`/`longitude` columns in `CREATE TABLE FIELDS` **and** guarded `IF COL_LENGTH(...) IS NULL ALTER TABLE` migration for existing databases; `02_seed.sql`: idempotent coordinate backfill block (UPDATE ... WHERE name = ... AND latitude IS NULL) for the 8 HCMC courts. Applied live via `python -m app.db.init_db` — all 8 rows confirmed populated.
+2. **Backend** — `app/routers/fields.py`: SELECT + payload now include nullable `latitude`/`longitude` (floats). `tests/test_booking_api.py`: Test Pitch seeded with coords + assertions (present values + NULL-tolerant second field).
+3. **Frontend** — NEW `lib/maps.ts` (MapsLocation type + `buildMapsUrl`) and `components/MapLink.tsx` (anchor, new tab, `rel="noopener noreferrer"`, aria-label, hover affordance); `PitchCard` address and `MyBookings` booking address are now Google Maps links; `types.ts` `Pitch.lat/lng?` optional; `data.ts` 8 mock pitches got the same coordinates as the DB (mock fallback behaves identically); `api.ts` maps `latitude/longitude` → `lat/lng`. NEW `lib/maps.test.ts` (3 tests: coords URL, name+address VN-encoding fallback, address-only).
+
+## Verification
+
+- Backend `python -m pytest` → **36/36** (incl. new lat/lng assertions).
+- Frontend `npm run test` → **49/49** (46 + 3 new), `npm run lint` → clean, `npm run build` → clean.
+- Live API check: `GET /api/fields` returns `latitude: 10.8033, longitude: 106.687` for Court 1 — user's running uvicorn picked changes up via `--reload`.
+- Extending later: swap `buildMapsUrl` internals (e.g. embed iframe or new provider) — components/tests keep calling the same function; DB data unchanged.
+
+---
+
 # Task 7: Complete all remaining PLAN.md items ✅ (2026-11-09)
 
 User requested "done all the thing left" — the 8 previously-open action items were all implemented and verified. **PLAN.md is now 100% ticked.**

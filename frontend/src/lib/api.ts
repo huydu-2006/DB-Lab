@@ -106,6 +106,8 @@ export type ApiField = {
   name: string
   address: string
   district: string
+  latitude: number | null
+  longitude: number | null
   type: string
   surface: string
   basePricePerHour: number
@@ -206,6 +208,8 @@ export function apiFieldToPitch(field: ApiField): Pitch {
     name: field.name,
     address: field.address,
     district: field.district,
+    lat: field.latitude ?? undefined,
+    lng: field.longitude ?? undefined,
     type: field.type as Pitch['type'],
     surface: field.surface as Pitch['surface'],
     pricePerHour: field.basePricePerHour,

@@ -65,6 +65,11 @@ CREATE TABLE dbo.FIELDS (
   name                NVARCHAR(120)    NOT NULL,
   address             NVARCHAR(255)    NOT NULL,
   district            NVARCHAR(80)     NOT NULL,
+  -- Provider-agnostic geolocation (WGS-84). The app currently renders a plain
+  -- Google Maps search link; coordinates let any future map provider / embed
+  -- / navigation deep-link consume the same data without a schema change.
+  latitude            DECIMAL(9, 6)    NULL,
+  longitude           DECIMAL(9, 6)    NULL,
   field_type          NVARCHAR(5)      NOT NULL,
   surface_type        NVARCHAR(20)     NOT NULL,
   base_price_per_hour DECIMAL(12, 2)   NOT NULL,
@@ -90,6 +95,14 @@ CREATE TABLE dbo.FIELDS (
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_FIELDS_type_status' AND object_id = OBJECT_ID(N'dbo.FIELDS'))
 CREATE INDEX IX_FIELDS_type_status ON dbo.FIELDS (field_type, status);
+GO
+-- Location columns added for Google Maps integration: guarded so re-running
+-- the schema on an existing database is a no-op migration, not an error.
+IF COL_LENGTH(N'dbo.FIELDS', N'latitude') IS NULL
+    ALTER TABLE dbo.FIELDS ADD latitude DECIMAL(9, 6) NULL;
+GO
+IF COL_LENGTH(N'dbo.FIELDS', N'longitude') IS NULL
+    ALTER TABLE dbo.FIELDS ADD longitude DECIMAL(9, 6) NULL;
 GO
 
 -- ----------------------------------------------------------------------------
