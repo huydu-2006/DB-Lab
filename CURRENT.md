@@ -145,6 +145,16 @@ Implemented the full authentication flow against MySQL, per the finalized PLAN.m
 
 ---
 
+# Task 6: Bug fix — second sign-up failed with UQ_USERS_phone violation ✅
+
+**Symptom (found by the user live):** `dev/register` returned `IntegrityError: Violation of UNIQUE KEY constraint 'UQ_USERS_phone'` with duplicate key value `(NULL)`.
+
+**Root cause:** a MySQL→SQL Server translation gap. MySQL UNIQUE allows unlimited NULLs; **SQL Server UNIQUE constraints allow only one NULL**. Any second sign-up without a phone number (the common case — phone is optional in the register payload) crashed. The Task 4 port kept `UNIQUE (phone)` as a constraint with a wrong "same as MySQL" comment; the test suite never caught it because each test registers at most one phone-less user against a clean table.
+
+**Fix:** `USERS.phone` uniqueness is now a **filtered unique index** — `CREATE UNIQUE INDEX UQ_USERS_phone ON dbo.USERS (phone) WHERE phone IS NOT NULL` (unique for real numbers, unlimited NULLs, matching the original MySQL semantics). Applied to the live DB (dropped the constraint + re-ran the idempotent schema; the running dev server needed no restart), regression test added (`test_dev_register_allows_multiple_users_without_phone`), **20/20 tests pass**. Live re-check: `abc@gmail.com` registered successfully and both phone-less accounts ('charles', 'abc') coexist in `BK88_STADIUM.USERS`.
+
+---
+
 # Task 5: .gitignore hygiene ✅
 
 Verified via `git check-ignore` that the real secrets/artifacts were already covered: `backend/.env` (root `.env` pattern), `__pycache__/`, `.pytest_cache/`, `frontend/dist/`, `frontend/node_modules/`, vitest/vite logs. Added an **Editors/IDE** section (`.vscode/`, `.idea/`) and an **OS artifacts** section (`Thumbs.db`, `Desktop.ini`, `.DS_Store`). Deleted an accidental empty `backend/package-lock.json` (Node artifact in a Python-only dir; no package.json ever existed). `git status` now shows only tracked-file modifications — zero untracked noise.

@@ -45,10 +45,15 @@ CREATE TABLE dbo.USERS (
   CONSTRAINT PK_USERS PRIMARY KEY (user_id),
   CONSTRAINT UQ_USERS_clerk_id UNIQUE (clerk_user_id),
   CONSTRAINT UQ_USERS_email UNIQUE (email),
-  CONSTRAINT UQ_USERS_phone UNIQUE (phone),       -- single NULL allowed, same as MySQL
+  -- phone uniqueness is a FILTERED index (below): SQL Server UNIQUE constraints
+  -- allow only a single NULL, but many users legitimately have no phone number.
   CONSTRAINT CHK_USERS_auth_provider CHECK (auth_provider IN (N'CLERK', N'GOOGLE')),
   CONSTRAINT CHK_USERS_role CHECK (role IN (N'CUSTOMER', N'STAFF', N'ADMIN'))
 );
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UQ_USERS_phone'
+               AND object_id = OBJECT_ID(N'dbo.USERS'))
+CREATE UNIQUE INDEX UQ_USERS_phone ON dbo.USERS (phone) WHERE phone IS NOT NULL;
 GO
 
 -- ----------------------------------------------------------------------------

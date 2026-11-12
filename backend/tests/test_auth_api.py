@@ -50,6 +50,18 @@ def test_dev_register_rejects_duplicate_email(client):
     assert response.status_code == 409
 
 
+def test_dev_register_allows_multiple_users_without_phone(client):
+    """Regression: SQL Server UNIQUE rejects duplicate NULLs; the schema uses a
+    filtered unique index so several phone-less accounts can coexist."""
+    register(client, email="a@bk88.vn", full_name="No Phone A")
+    register(client, email="b@bk88.vn", full_name="No Phone B")
+    with engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT COUNT(*) AS n FROM USERS WHERE phone IS NULL")
+        ).mappings().one()
+    assert count["n"] == 2
+
+
 def test_dev_register_validates_payload(client):
     response = client.post(
         "/api/auth/dev/register",
