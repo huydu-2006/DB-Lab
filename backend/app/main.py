@@ -5,8 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routers.auth import dev_router, router as auth_router
+from app.routers.bookings import router as bookings_router
+from app.routers.fields import router as fields_router, services_router
+from app.routers.payments import router as payments_router
+from app.routers.reports import router as reports_router
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,6 +21,11 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(fields_router)
+app.include_router(services_router)
+app.include_router(bookings_router)
+app.include_router(payments_router)
+app.include_router(reports_router)
 if not settings.clerk_enabled:
     # Dev fallback: DB-backed sign-in/sign-up without a Clerk instance.
     app.include_router(dev_router)

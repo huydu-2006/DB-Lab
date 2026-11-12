@@ -17,7 +17,7 @@ function App() {
   }
 
   return session ? (
-    <Dashboard onLogout={handleLogout} />
+    <Dashboard onLogout={handleLogout} session={session} />
   ) : (
     <Login onLogin={handleLogin} />
   )

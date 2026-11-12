@@ -6,12 +6,35 @@ guarantees (UPDLOCK/HOLDLOCK hints) replace the former MySQL
 SELECT ... FOR UPDATE locking.
 """
 
-from collections.abc import Generator
+import re
+from urllib.parse import quote_plus, unquote_plus
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from app.core.config import settings
+
+
+def ensure_database() -> None:
+    """Create the configured SQL Server database if it does not exist.
+
+    Handles SQLAlchemy URLs in the mssql+pyodbc odbc_connect form; other
+    dialects are assumed to point at an existing database.
+    """
+    url = settings.database_url
+    if "odbc_connect=" not in url:
+        return
+    base, _, query = url.partition("odbc_connect=")
+    connect_string = unquote_plus(query)
+    db_name = re.search(r"DATABASE=([^;]+)", connect_string, re.I).group(1)
+    master_cs = re.sub(r"DATABASE=[^;]+", "DATABASE=master", connect_string, flags=re.I)
+    master = create_engine(
+        base + "odbc_connect=" + quote_plus(master_cs), isolation_level="AUTOCOMMIT"
+    )
+    with master.connect() as conn:
+        conn.execute(text(f"IF DB_ID(N'{db_name}') IS NULL CREATE DATABASE [{db_name}]"))
+    master.dispose()
+
 
 engine = create_engine(
     settings.database_url,

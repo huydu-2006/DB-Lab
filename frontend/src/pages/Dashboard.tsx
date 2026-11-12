@@ -1,10 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Logo from '../Logo'
+import { AdminDashboard } from '../components/AdminDashboard'
 import { BookingDialog } from '../components/BookingDialog'
+import type { BookingExtra, BookingPayment } from '../components/BookingDialog'
 import { MyBookings } from '../components/MyBookings'
 import { PitchCard } from '../components/PitchCard'
 import { EmptyState, Badge } from '../components/ui/Badge'
 import { Select } from '../components/ui/Field'
+import {
+  ApiUnavailableError,
+  apiBookingToBooking,
+  apiFieldToPitch,
+  bookingsApi,
+  fieldsApi,
+  paymentsApi,
+  servicesApi,
+  type ApiServiceItem,
+  type AuthSession,
+} from '../lib/api'
 import {
   BallIcon,
   CalendarIcon,
@@ -36,7 +49,6 @@ import type {
   PriceRange,
   SortOption,
   StatusFilter,
-  Tab,
 } from '../lib/types'
 
 const fieldClass =
@@ -51,7 +63,9 @@ const sortLabels: Record<SortOption, string> = {
 
 let toastId = 0
 
-function Dashboard({ onLogout }: { onLogout: () => void }) {
+type DashboardTab = 'pitches' | 'bookings' | 'admin'
+
+function Dashboard({ onLogout, session }: { onLogout: () => void; session: AuthSession | null }) {
   const today = todayISOIn(APP_TIME_ZONE)
   const [date, setDate] = useState(today)
   const [location, setLocation] = useState('')
@@ -60,13 +74,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [status, setStatus] = useState<StatusFilter>('all')
   const [sort, setSort] = useState<SortOption>('recommended')
 
-  const [tab, setTab] = useState<Tab>('pitches')
+  const [tab, setTab] = useState<DashboardTab>('pitches')
   const [bookings, setBookings] = useState<Booking[]>([])
   const [dialogPitch, setDialogPitch] = useState<Pitch | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
-
-  const nowHour = nowHourIn(APP_TIME_ZONE)
-  const dates = useMemo(() => bookingDates(today), [today])
 
   const pushToast = (tone: ToastTone, title: string, description?: string) => {
     const id = ++toastId
@@ -77,26 +88,136 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     setToasts((current) => current.filter((toast) => toast.id !== id))
   }
 
-  const availability = useMemo(
-    () =>
-      new Map(
-        pitches.map((pitch) => {
-          const slots = getSlotStates(pitch, date, bookings, nowHour)
-          return [
-            pitch.id,
-            {
-              free: slots.filter((slot) => slot.state === 'free').length,
-              total: slots.length,
-            },
-          ] as const
-        }),
-      ),
-    [date, bookings, nowHour],
-  )
+  // Live API state (falls back to the mock data.ts catalogue when offline)
+  const [livePitches, setLivePitches] = useState<Pitch[]>([])
+  const [apiUp, setApiUp] = useState(false)
+  const [apiFree, setApiFree] = useState<Map<number, { free: number; total: number }>>(new Map())
+  const [dialogSlots, setDialogSlots] = useState<
+    { start: string; end: string; state: 'free' | 'taken' | 'past'; price: number }[] | null | undefined
+  >(undefined)
+  const [apiServices, setApiServices] = useState<ApiServiceItem[] | null>(null)
+  const [dialogBusy, setDialogBusy] = useState(false)
+  const [dialogError, setDialogError] = useState<string | null>(null)
+
+  const token = session?.token
+  const isAdminLike = session?.user.role === 'STAFF' || session?.user.role === 'ADMIN'
+
+  const refreshBookings = async () => {
+    if (!token || token === 'demo') return
+    const list = await bookingsApi.mine(token)
+    const mapped = list.map(apiBookingToBooking)
+    setBookings((current) => {
+      const local = current.filter((booking) => booking.dbId === undefined)
+      return [...mapped, ...local]
+    })
+  }
+
+  const refreshAvailability = async (day: string) => {
+    if (!token || token === 'demo') return
+    const summary = await fieldsApi.availability(day)
+    setApiFree(
+      new Map(summary.map((entry) => [entry.field_id, { free: entry.free, total: entry.total }])),
+    )
+  }
+
+  useEffect(() => {
+    if (!token || token === 'demo') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [fields, services] = await Promise.all([fieldsApi.list(), servicesApi.list()])
+        if (cancelled) return
+        setLivePitches(fields.filter((f) => f.status === 'ACTIVE').map(apiFieldToPitch))
+        setApiServices(services)
+        setApiUp(true)
+        await Promise.all([refreshBookings(), refreshAvailability(date)])
+      } catch (error) {
+        if (!cancelled && error instanceof ApiUnavailableError) {
+          // backend offline — remain in mock mode (already the default state)
+          setApiUp(false)
+        } else if (!cancelled) {
+          pushToast('error', 'Live data unavailable', 'Using the sample pitch catalogue instead.')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  useEffect(() => {
+    if (!apiUp) return
+    let cancelled = false
+    void (async () => {
+      try {
+        await refreshAvailability(date)
+      } catch {
+        if (!cancelled) setApiUp(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when the date changes
+  }, [apiUp, date])
+
+  // Live slot grid for the open dialog
+  useEffect(() => {
+    if (!apiUp || !dialogPitch) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- cache reset for the closing dialog
+      setDialogSlots(undefined)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const availability = await fieldsApi.fieldAvailability(dialogPitch.id, date)
+        if (cancelled) return
+        setDialogSlots(
+          availability.slots.map((slot) => ({
+            start: slot.start.slice(0, 5),
+            end: slot.end.slice(0, 5),
+            state: slot.state,
+            price: slot.price_per_hour,
+          })),
+        )
+      } catch {
+        if (!cancelled) setDialogSlots(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiUp, dialogPitch, date])
+
+  const nowHour = nowHourIn(APP_TIME_ZONE)
+  const dates = useMemo(() => bookingDates(today), [today])
+  const activePitches = livePitches.length > 0 ? livePitches : pitches
+
+  const availability = useMemo(() => {
+    if (apiUp && apiFree.size > 0) {
+      return new Map(
+        [...apiFree.entries()].map(([fieldId, entry]) => [fieldId, entry] as const),
+      )
+    }
+    return new Map(
+      activePitches.map((pitch) => {
+        const slots = getSlotStates(pitch, date, bookings, nowHour)
+        return [
+          pitch.id,
+          {
+            free: slots.filter((slot) => slot.state === 'free').length,
+            total: slots.length,
+          },
+        ] as const
+      }),
+    )
+  }, [apiUp, apiFree, activePitches, date, bookings, nowHour])
 
   const search = location.trim().toLowerCase()
   const visiblePitches = useMemo(() => {
-    const filtered = pitches.filter((pitch) => {
+    const filtered = activePitches.filter((pitch) => {
       const free = availability.get(pitch.id)?.free ?? 0
       return (
         (search === '' ||
@@ -117,10 +238,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       const bFree = availability.get(b.id)?.free ?? 0
       return bFree - aFree || b.rating - a.rating
     })
-  }, [search, type, priceRange, status, sort, availability])
+  }, [search, type, priceRange, status, sort, availability, activePitches])
 
-  const total = pitches.length
-  const availableCount = pitches.filter(
+  const total = activePitches.length
+  const availableCount = activePitches.filter(
     (pitch) => (availability.get(pitch.id)?.free ?? 0) > 0,
   ).length
   const totalFreeSlots = [...availability.values()].reduce(
@@ -138,7 +259,57 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     setSort('recommended')
   }
 
-  const confirmBooking = (pitch: Pitch, start: string, durationHours: number) => {
+  const confirmBooking = (
+    pitch: Pitch,
+    start: string,
+    durationHours: number,
+    extras: BookingExtra[],
+    payment: BookingPayment,
+  ) => {
+    // ----- live path: transactional create via the API -----
+    if (apiUp && token && token !== 'demo') {
+      setDialogBusy(true)
+      setDialogError(null)
+      void (async () => {
+        try {
+          const created = await bookingsApi.create(token, {
+            field_id: pitch.id,
+            booking_date: date,
+            start_time: start,
+            duration_minutes: Math.round(durationHours * 60),
+          })
+          for (const extra of extras) {
+            await bookingsApi.addService(token, created.booking_id, extra.serviceId, extra.quantity)
+          }
+          if (payment.deposit) {
+            await paymentsApi.record(token, {
+              booking_id: created.booking_id,
+              amount: Math.round(created.pitch_amount * 0.3),
+              payment_type: 'DEPOSIT',
+              payment_method: payment.method as 'CASH' | 'BANK_TRANSFER' | 'E_WALLET' | 'CARD',
+            })
+          }
+          await Promise.all([refreshBookings(), refreshAvailability(date)])
+          pushToast(
+            'success',
+            'Booking confirmed',
+            `${created.field_name} · ${formatRelativeDate(date)} at ${start.slice(0, 5)} · ${formatCurrency(created.total_amount)}`,
+          )
+          setDialogPitch(null)
+        } catch (error) {
+          setDialogError(
+            error instanceof Error ? error.message : 'Could not create the booking.',
+          )
+          // the slot map may be stale — reload it
+          void refreshAvailability(date).catch(() => undefined)
+        } finally {
+          setDialogBusy(false)
+        }
+      })()
+      return
+    }
+
+    // ----- offline demo path (unchanged local behaviour) -----
     const slots = getSlotStates(pitch, date, bookings, nowHour)
     const startIndex = slots.findIndex((slot) => slot.start === start)
     const endTime = slots[startIndex + durationHours * 2 - 1]?.end ?? start
@@ -170,6 +341,27 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   }
 
   const cancelBooking = (booking: Booking) => {
+    if (booking.dbId && token && token !== 'demo') {
+      const bookingDbId = booking.dbId
+      void (async () => {
+        try {
+          await bookingsApi.updateStatus(token, bookingDbId, 'CANCELLED')
+          await Promise.all([refreshBookings(), refreshAvailability(date)])
+          pushToast(
+            'info',
+            'Booking cancelled',
+            `${booking.pitchName} · ${formatRelativeDate(booking.date)} at ${booking.startTime}`,
+          )
+        } catch (error) {
+          pushToast(
+            'error',
+            'Could not cancel',
+            error instanceof Error ? error.message : 'Database error',
+          )
+        }
+      })()
+      return
+    }
     setBookings((current) => current.filter((item) => item.id !== booking.id))
     pushToast(
       'info',
@@ -221,6 +413,9 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                     `My bookings${bookings.length ? ` (${bookings.length})` : ''}`,
                     <CalendarIcon key="b" className="size-4" />,
                   ],
+                  ...(isAdminLike
+                    ? ([['admin', 'Staff & revenue', <SparkIcon key="a" className="size-4" />]] as const)
+                    : []),
                 ] as const
               ).map(([value, label, icon]) => (
                 <button
@@ -271,12 +466,18 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">
-              {tab === 'pitches' ? 'Find a pitch' : 'My bookings'}
+              {tab === 'pitches'
+                ? 'Find a pitch'
+                : tab === 'admin'
+                  ? 'Staff & revenue'
+                  : 'My bookings'}
             </h1>
             <p className="mt-1.5 text-sm text-ink-muted">
               {tab === 'pitches'
                 ? 'Compare pitches, check live availability, and lock in a slot.'
-                : 'Every session you have reserved, in one place.'}
+                : tab === 'admin'
+                  ? `Signed in as ${session?.user.full_name ?? 'staff'} (${session?.user.role}) — manage bookings and revenue.`
+                  : 'Every session you have reserved, in one place.'}
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 shadow-sm">
@@ -491,6 +692,19 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               {formatDuration(0.5)} minimum booking.
             </p>
           </section>
+        ) : tab === 'admin' ? (
+          <section className="mt-8" aria-labelledby="admin-heading">
+            <h2 id="admin-heading" className="sr-only">
+              Staff & revenue
+            </h2>
+            {token && token !== 'demo' ? (
+              <AdminDashboard token={token} role={session?.user.role ?? 'CUSTOMER'} />
+            ) : (
+              <p className="text-sm text-ink-muted">
+                Admin operations need the API backend (offline demo mode is active).
+              </p>
+            )}
+          </section>
         ) : (
           <section className="mt-8" aria-labelledby="bookings-heading">
             <h2 id="bookings-heading" className="sr-only">
@@ -511,7 +725,14 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         date={date}
         bookings={bookings}
         nowHour={nowHour}
-        onClose={() => setDialogPitch(null)}
+        slotsOverride={apiUp ? dialogSlots : undefined}
+        services={apiUp ? (apiServices ?? []) : undefined}
+        submitting={dialogBusy}
+        apiError={dialogError}
+        onClose={() => {
+          setDialogPitch(null)
+          setDialogError(null)
+        }}
         onConfirm={confirmBooking}
       />
 

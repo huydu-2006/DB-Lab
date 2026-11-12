@@ -47,7 +47,19 @@ Verify:
 sqlcmd -S localhost\SQLEXPRESS -E -C -Q "USE BK88_STADIUM; SELECT name FROM sys.tables;"
 ```
 
-### 3. Set up and start the backend (FastAPI)
+### 3. Seed sample data (optional, recommended)
+
+Populates the 8 pitches, pricing rules, services, sample users and bookings (idempotent, safe to re-run):
+
+```bash
+sqlcmd -S localhost\SQLEXPRESS -E -C -i backend/sql/02_seed.sql
+```
+
+> Alternative after installing the backend dependencies (step 4): `cd backend && python -m app.db.init_db` (applies schema + seed together; `--seed-only` skips the schema).
+
+Seeded sign-in accounts (dev-mode login, any password): `admin@bk88.vn` (ADMIN), `staff@bk88.vn` (STAFF), `ron@bk88.vn` and `charles@bk88.vn` (CUSTOMERs).
+
+### 4. Set up and start the backend (FastAPI)
 
 ```bash
 cd backend
@@ -82,7 +94,7 @@ If you see `{"status":"ok","auth_mode":"dev-fallback"}` at **http://127.0.0.1:80
 
 > **Auth modes:** with `CLERK_JWKS_URL` empty the backend runs in *dev-fallback* mode: sign-up/sign-in works directly against the SQL Server `USERS` table (`POST /api/auth/dev/register`, `POST /api/auth/dev/login`). When you later adopt Clerk + Google OAuth (see `PLAN.md`), fill in `CLERK_JWKS_URL` and `CLERK_ISSUER` and the same endpoints switch to Clerk RS256 JWT verification — no code changes required.
 
-### 4. Set up and start the frontend (React + Vite)
+### 5. Set up and start the frontend (React + Vite)
 
 In a **new terminal**, from the repository root:
 
@@ -97,7 +109,7 @@ npm run dev
 
 Open **http://localhost:5173**.
 
-### 5. Sign up and sign in
+### 6. Sign up and sign in
 
 1. On the login page, switch to the **Sign up** tab, enter your name + email (+ any password ≥ 6 chars — the local dev API does not check passwords; that is Clerk's job in production), and create the account.
 2. Switch to **Sign in** and sign in with the same email.
@@ -109,9 +121,9 @@ sqlcmd -S localhost\SQLEXPRESS -E -C -Q "USE BK88_STADIUM; SELECT user_id, full_
 
 > If the backend isn't running, the login page automatically falls back to an offline demo account: `manager@bk88.vn` / `matchday`.
 
-### 6. Run the tests
+### 7. Run the tests
 
-Backend (8 unit tests + 11 database-backed tests; the suite creates and rebuilds the scratch database `BK88_STADIUM_TEST` from `01_schema.sql` itself — no environment variables needed, the defaults in `tests/conftest.py` point at `localhost\SQLEXPRESS`):
+Backend — **36 tests** (unit + database-backed; the suite creates and rebuilds the scratch database `BK88_STADIUM_TEST` from `01_schema.sql` itself — no environment variables needed, the defaults in `tests/conftest.py` point at `localhost\SQLEXPRESS`):
 
 ```bash
 cd backend
@@ -144,8 +156,9 @@ npm run lint     # ESLint
 ```
 DB-Lab/
 ├── backend/
-│   ├── app/                  # FastAPI application (auth, config, db, security)
+│   ├── app/                  # FastAPI application (auth, fields, bookings, payments, reports)
 │   ├── sql/01_schema.sql     # SQL Server (T-SQL) schema, triggers, indexes, views
+│   ├── sql/02_seed.sql       # idempotent sample data (pitches, rules, users)
 │   ├── sql/DESIGN.md         # database design rationale
 │   ├── tests/                # pytest suites (unit + DB-backed)
 │   └── .env.example          # backend environment template

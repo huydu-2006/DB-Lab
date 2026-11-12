@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from './types'
+import type { Booking, Pitch } from './types'
 
 export type AuthUser = {
   user_id: number
@@ -92,6 +93,213 @@ export const authApi = {
       method: 'POST',
       body: input,
     }),
+}
+
+// ---------------------------------------------------------------------------
+// Live domain API (bookings, pitches, services, payments, reports).
+// Mappers normalize backend responses into the existing domain types so the
+// UI components do not change shape when the mock data.ts fallback is in use.
+// ---------------------------------------------------------------------------
+
+export type ApiField = {
+  id: number
+  name: string
+  address: string
+  district: string
+  type: string
+  surface: string
+  basePricePerHour: number
+  rating: number
+  reviews: number
+  amenities: string[]
+  openAt: string
+  closeAt: string
+  status: string
+}
+
+export type ApiSlot = {
+  start: string
+  end: string
+  state: 'free' | 'taken' | 'past'
+  price_per_hour: number
+}
+
+export type ApiAvailabilitySummary = { field_id: number; free: number; total: number }
+
+export type ApiServiceItem = {
+  id: number
+  name: string
+  unit: string
+  unitPrice: number
+  stock: number
+}
+
+export type ApiBookingLineService = {
+  id: number
+  service_id: number
+  name: string
+  unit: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
+export type ApiBooking = {
+  booking_id: number
+  user_id: number
+  user_name: string
+  field_id: number
+  field_name: string
+  booking_date: string
+  start_time: string
+  end_time: string
+  status: string
+  pitch_amount: number
+  service_amount: number
+  total_amount: number
+  paid_amount: number
+  services: ApiBookingLineService[]
+}
+
+export type ApiPayment = {
+  id: number
+  booking_id: number
+  amount: number
+  payment_type: string
+  payment_method: string
+  payment_status: string
+  paid_at: string | null
+}
+
+export type ApiReport = {
+  from_date: string
+  to_date: string
+  total_revenue: number
+  revenue_by_day: { date: string; revenue: number }[]
+  revenue_by_field: {
+    field_id: number
+    name: string
+    field_type: string
+    revenue: number
+    paid_bookings: number
+  }[]
+  utilization: {
+    field_id: number
+    name: string
+    avg_utilization_pct: number
+    booked_hours: number
+  }[]
+  top_customers: {
+    user_id: number
+    full_name: string
+    total_bookings: number
+    lifetime_value: number
+    cancellations: number
+    no_shows: number
+  }[]
+  status_counts: Record<string, number>
+}
+
+export function apiFieldToPitch(field: ApiField): Pitch {
+  return {
+    id: field.id,
+    name: field.name,
+    address: field.address,
+    district: field.district,
+    type: field.type as Pitch['type'],
+    surface: field.surface as Pitch['surface'],
+    pricePerHour: field.basePricePerHour,
+    rating: field.rating,
+    reviews: field.reviews,
+    amenities: field.amenities as Pitch['amenities'],
+    openAt: field.openAt,
+    closeAt: field.closeAt,
+    takenSlots: [],
+  }
+}
+
+export function apiBookingToBooking(booking: ApiBooking): Booking {
+  const start = booking.start_time.slice(0, 5)
+  const end = booking.end_time.slice(0, 5)
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  const durationHours = (eh * 60 + em - (sh * 60 + sm)) / 60
+  return {
+    id: `BK-${booking.booking_id}`,
+    dbId: booking.booking_id,
+    status: booking.status,
+    pitchId: booking.field_id,
+    pitchName: booking.field_name,
+    address: '',
+    date: booking.booking_date,
+    startTime: start,
+    endTime: end,
+    durationHours,
+    pricePerHour: Math.round(booking.pitch_amount / Math.max(durationHours, 0.5)),
+    total: booking.total_amount,
+    createdAt: booking.booking_date,
+  }
+}
+
+export const fieldsApi = {
+  list: () => apiFetch<ApiField[]>('/api/fields'),
+
+  availability: (date: string) =>
+    apiFetch<ApiAvailabilitySummary[]>(`/api/fields/availability?date=${date}`),
+
+  fieldAvailability: (fieldId: number, date: string) =>
+    apiFetch<{ openAt: string; closeAt: string; slots: ApiSlot[] }>(
+      `/api/fields/${fieldId}/availability?date=${date}`,
+    ),
+}
+
+export const servicesApi = {
+  list: () => apiFetch<ApiServiceItem[]>('/api/services'),
+}
+
+export const bookingsApi = {
+  create: (
+    token: string,
+    input: { field_id: number; booking_date: string; start_time: string; duration_minutes: number },
+  ) => apiFetch<ApiBooking>('/api/bookings', { method: 'POST', body: input, token }),
+
+  mine: (token: string) => apiFetch<ApiBooking[]>('/api/bookings', { token }),
+
+  all: (token: string) => apiFetch<ApiBooking[]>('/api/bookings?scope=all', { token }),
+
+  updateStatus: (token: string, bookingId: number, status: string) =>
+    apiFetch<ApiBooking>(`/api/bookings/${bookingId}/status`, {
+      method: 'PATCH',
+      body: { status },
+      token,
+    }),
+
+  addService: (token: string, bookingId: number, serviceId: number, quantity: number) =>
+    apiFetch<ApiBooking>(`/api/bookings/${bookingId}/services`, {
+      method: 'POST',
+      body: { service_id: serviceId, quantity },
+      token,
+    }),
+}
+
+export const paymentsApi = {
+  record: (
+    token: string,
+    input: {
+      booking_id: number
+      amount: number
+      payment_type: 'DEPOSIT' | 'FULL' | 'REMAINDER' | 'REFUND'
+      payment_method: 'CASH' | 'BANK_TRANSFER' | 'E_WALLET' | 'CARD'
+    },
+  ) => apiFetch<ApiPayment>('/api/payments', { method: 'POST', body: input, token }),
+
+  listForBooking: (token: string, bookingId: number) =>
+    apiFetch<ApiPayment[]>(`/api/bookings/${bookingId}/payments`, { token }),
+}
+
+export const reportsApi = {
+  revenue: (token: string, days = 30) =>
+    apiFetch<ApiReport>(`/api/reports/revenue?days=${days}`, { token }),
 }
 
 const SESSION_KEY = 'bk88.session'

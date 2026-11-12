@@ -141,7 +141,36 @@ Implemented the full authentication flow against MySQL, per the finalized PLAN.m
 - Run backend: `cd backend && python -m uvicorn app.main:app --reload`. Tests: `python -m pytest` (no env needed; defaults target `localhost\SQLEXPRESS`).
 - DB conventions: `NVARCHAR` strings, `IDENTITY` PKs, `DECIMAL(12,2)` VND, `created_at` only (no updated_at), CI-collation string matching (emails), trigger errors = transaction aborts (backend must treat `THROW 50001` as retry-able transaction failure).
 - Override test target via `BK88_TEST_DATABASE_URL` if the instance differs (parseable `odbc_connect` URLs only).
-- Still pending (unchanged): seed data `02_seed.sql`, bookings/fields/payments/reports routers, Clerk frontend integration, live-data wiring. Note for the bookings router: row locking should use `WITH (UPDLOCK, HOLDLOCK)`.
+- ~~Still pending~~ **Resolved by Task 7 (2026-11-09):** seed data `02_seed.sql`, bookings/fields/payments/reports routers, Clerk frontend integration, and live-data wiring are all done; bookings locking uses `WITH (UPDLOCK, HOLDLOCK)` as noted.
+
+---
+
+# Task 7: Complete all remaining PLAN.md items ✅ (2026-11-09)
+
+User requested "done all the thing left" — the 8 previously-open action items were all implemented and verified. **PLAN.md is now 100% ticked.**
+
+## Deliverables
+
+1. **Seed data** — `backend/sql/02_seed.sql` (T-SQL, idempotent via `IF NOT EXISTS`; all DECLAREs in one GO batch) + `backend/app/db/init_db.py` (runs 01+02 via GO-splitter, skips CREATE DATABASE/USE batches; `python -m app.db.init_db [--seed-only]`). Seeds the 8 pitches from frontend `data.ts`, 112 PRICING_RULES (off-peak 06–17 base, peak ≥17:00 ×1.15 weekday / ×1.10 +1.25 weekend), 4 SERVICES, 4 sample users (`admin@bk88.vn` ADMIN, `staff@bk88.vn` STAFF, `ron@bk88.vn`+`charles@bk88.vn` CUSTOMERs), 2 sample bookings (DATEADD day+2/+3), 1 deposit. Verified live: 8 fields / 112 rules / 4 services / 6 users / 2 bookings / 1 payment.
+2. **Fields/availability routers** — `app/routers/fields.py`: GET `/api/fields`, `/api/fields/availability?date=`, `/api/fields/{id}/availability?date=`, plus `GET /api/services` (services_router). `app/db/scheduling.py` builds the 30-min slot grid, prices each half from PRICING_RULES (Python `(weekday+1)%7` ISO→T-SQL dow), falls back to base price, and marks maintenance-window slots taken.
+3. **Bookings/payments routers** — `app/routers/bookings.py`: POST create uses `UPDLOCK, HOLDLOCK` slot locks; overlap or maintenance → 409, invalid grid/closing → 422; GET `?scope=mine|all` with RBAC; PATCH status (owner may only → CANCELLED; staff/admin all); POST services (stock UPDLOCK, insufficient stock → 409, duplicate UQ → 409). `app/routers/payments.py`: POST `/api/payments` (over-balance → 422, not-owner → 403), GET `/api/bookings/{id}/payments`. Note: no OUTPUT-with-triggers on SQL Server — post-INSERT row fetch via `SELECT TOP 1 ... ORDER BY booking_id DESC`.
+4. **Reports router** — `app/routers/reports.py`: GET `/api/reports/revenue?days=` (ADMIN only) over the 3 analytical views + status counts + top customers.
+5. **Clerk frontend integration** — `@clerk/clerk-react` installed; `main.tsx` conditionally wraps `<ClerkProvider>` when `VITE_CLERK_PUBLISHABLE_KEY` is set; new `ClerkAuth.tsx` (SignIn → `getToken()` → POST `/api/auth/sync` → onLogin); `Login.tsx` dispatches ClerkAuth vs DevLogin. Backend already supports Clerk RS256 — set `CLERK_JWKS_URL`/`CLERK_ISSUER` in `backend/.env` when adopting Clerk (dev-mode stays the default until then).
+6. **Frontend wired to live API** — `api.ts` extended (ApiField/ApiSlot/ApiBooking types, `apiFieldToPitch`/`apiBookingToBooking` mappers, fieldsApi/servicesApi/bookingsApi/paymentsApi/reportsApi); `Dashboard.tsx` live-fetches pitches/services/availability/my-bookings when a session token exists, `confirmBooking` = create → addService → 30% deposit → refresh, `cancelBooking` = PATCH; `BookingDialog.tsx` rewritten (dual-mode slotsOverride live vs mock, extras quantity steppers, deposit checkbox + method select); `types.ts` Booking gets optional `dbId`/`status`. **Full offline mock fallback preserved** — existing components/tests untouched.
+7. **Admin UI** — new `components/AdminDashboard.tsx`: bookings table with status dropdown (STAFF/ADMIN), revenue cards + top pitches + top customers (ADMIN), wired into Dashboard as an admin tab.
+
+## Verification (all green)
+
+- Backend: `python -m pytest` → **36/36** (16 new tests in `tests/test_booking_api.py` against auto-created `BK88_STADIUM_TEST`; no env vars needed).
+- Frontend: `npm run test` → **46/46**, `npm run lint` → 0 errors/0 warnings, `npm run build` → success.
+- **Live E2E smoke test** (against running uvicorn on :8000, live `bk88_stadium` DB): dev login ron@bk88.vn → booking create 2026-11-12 17:00+120min on BK-88 Arena – Court 1 (201, ₫644,000) → overlap rejected 409 → Ball Rental ×2 added (total ₫744,000) → 30% E_WALLET deposit ₫193,200 PAID → admin revenue report 200 (₫338,100 across both courts) → customer report access 403 → cleanup CANCELLED 200.
+
+## Notes / conventions
+
+- Activate Clerk later: set `VITE_CLERK_PUBLISHABLE_KEY` (frontend) + `CLERK_JWKS_URL`/`CLERK_ISSUER` (backend `.env`); dev endpoints remain otherwise.
+- Seed/resync DB anytime: `cd backend && python -m app.db.init_db` (add `--seed-only` to skip schema).
+- Seeded login accounts: `admin@bk88.vn` / `staff@bk88.vn` / `ron@bk88.vn` / `charles@bk88.vn` (dev login or register your own).
+- Task 6's filtered unique index (`UQ_USERS_phone ... WHERE phone IS NOT NULL`) already covers new sign-ups; `init_db.py` redeploys it idempotently.
 
 ---
 

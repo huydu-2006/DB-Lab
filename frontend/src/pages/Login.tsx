@@ -14,6 +14,7 @@ import {
   saveSession,
   type AuthSession,
 } from '../lib/api'
+import { ClerkAuth } from '../components/ClerkAuth'
 import {
   AlertIcon,
   EyeIcon,
@@ -25,7 +26,19 @@ import {
 
 type Mode = 'signin' | 'signup'
 
+// When a Clerk publishable key is configured, authentication is hosted by
+// Clerk (Google OAuth + email/password); otherwise the local dev form talks
+// to the backend's /api/auth/dev/* endpoints.
+const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? ''
+
 function Login({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  if (clerkKey) {
+    return <ClerkAuth onLogin={onLogin} />
+  }
+  return <DevLogin onLogin={onLogin} />
+}
+
+function DevLogin({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   const [mode, setMode] = useState<Mode>('signin')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')

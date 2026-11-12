@@ -32,6 +32,10 @@ export type Pitch = {
 
 export type Booking = {
   id: string
+  /** Present when the booking lives in the SQL Server database. */
+  dbId?: number
+  /** DB status: PENDING / CONFIRMED / COMPLETED / CANCELLED / NO_SHOW. */
+  status?: string
   pitchId: number
   pitchName: string
   address: string
