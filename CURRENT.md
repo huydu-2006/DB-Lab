@@ -98,6 +98,59 @@ Implemented the full authentication flow against MySQL, per the finalized PLAN.m
 
 ---
 
+# Task 4: Requirement change — database switched MySQL → SQL Server ✅ (2026-11-09)
+
+**BREAKING CHANGE.** The whole stack now runs on **Microsoft SQL Server 2025 Express** (local instance `localhost\SQLEXPRESS`, Windows Authentication, ODBC Driver 18). The MySQL artifacts (server MySQL267, `bk88_stadium` + `bk88_stadium_test` on `localhost:3306`) are no longer used by this project — they can be dropped by the user at will (left untouched intentionally).
+
+## Schema (`backend/sql/01_schema.sql`, fully rewritten in T-SQL)
+
+- `ENUM` → `NVARCHAR` + `CHECK (col IN (...))` domains (roles, statuses, providers, payment types, field types).
+- `AUTO_INCREMENT` → `IDENTITY(1,1)`; `SET amenities` → comma-token `NVARCHAR(200)` with character-class CHECK; utf8mb4 → `NVARCHAR`.
+- Generated columns → `total_amount` / `subtotal` computed `PERSISTED` columns (same anti-drift invariant).
+- Overlap triggers: MySQL `BEFORE INSERT/UPDATE` + `SIGNAL SQLSTATE '45000'` → **`AFTER` triggers with `ROLLBACK TRANSACTION; THROW 50001`** (same "Slot conflict…" error text; different semantics — whole transaction rolls back, documented in DESIGN.md §3). UPDATE variant joins `inserted`/`deleted` and only fires when a slot-defining column changed.
+- Invoice-recalc triggers rework with `inserted`/`deleted` pseudo-tables — **the MySQL 1442 limitation is gone** (`INSERT INTO BOOKING_SERVICES … SELECT … FROM BOOKINGS` now recalculates correctly — verified live).
+- `updated_at` columns **dropped** (no `ON UPDATE CURRENT_TIMESTAMP` in SQL Server; `created_at` + status history retained — documented).
+- Views translated (`CAST(... AS DATE)`, `DATEDIFF(MINUTE,...)/60.0`, `CASE WHEN` counts); FK cascade policy preserved (`NO ACTION` ≈ RESTRICT).
+- Script is fully idempotent: `IF OBJECT_ID` table guards, sys.indexes-guarded `CREATE INDEX` (7 wrapped by script + 1 manual — one spans two lines), `CREATE OR ALTER` triggers/views. Added `SET QUOTED_IDENTIFIER ON; ...` batch at top — **required**: sqlcmd sessions open with QUOTED_IDENTIFIER OFF, which fails CREATE TABLE on PERSISTED computed columns (Msg 1934).
+
+## Backend
+
+- Driver: `pymysql` → **`pyodbc`** (requirements, config default, .env/.env.example). Windows auth → no passwords in the repo; `TrustServerCertificate=yes` for the Express self-signed cert.
+- Connection form: `mssql+pyodbc:///?odbc_connect=<URL-encoded ODBC string>` because the instance name (`localhost\SQLEXPRESS`) breaks SQLAlchemy host-based URLs (backslash never decodes) and the instance has **no TCP listener** (Named Pipes/Shared Memory only — did NOT touch the user's server config; no TCP/SQL Browser reconfiguration).
+- App SQL was already ANSI-portable (`:named` params, plain INSERT/SELECT) — no query changes needed; only docstrings and error paths.
+- Tests: conftest rewritten — GO-batch schema applier (skips the CREATE DATABASE/USE deployment batches, strips per-batch comment lines before anchoring regexes), test DB `BK88_STADIUM_TEST` auto-created and fully rebuilt per session (with `ALTER DATABASE ... SET SINGLE_USER WITH ROLLBACK IMMEDIATE` before DROP to evict pooled connections), per-test cleanup via `DELETE` + `DBCC CHECKIDENT` reseed. Tests now run **without env vars** (defaults in conftest target the local instance).
+
+## Live verification (SQL Server 2025 Express)
+
+- Schema deployed via `sqlcmd -S localhost\SQLEXPRESS -E -C -i backend/sql/01_schema.sql` → 8 tables, 5 triggers, 3 views; **0 errors on three consecutive re-runs** (idempotency verified).
+- pytest: **19 passed** (8 unit + 11 DB-backed against `BK88_STADIUM_TEST`).
+- Trigger suite (throwaway script, real DB, per-phase fresh transactions because trigger ROLLBACK voids the whole txn): overlap INSERT blocked (50001 custom message), adjacent half-open slot accepted, overlap UPDATE blocked, CANCELLED frees slot, recalc after INSERT...SELECT / UPDATE / DELETE → 20000/30000/0 with correct computed totals. DB left empty.
+- uvicorn smoke test: health (dev-fallback), register → `USERS` row, duplicate email 409 (**case-insensitive** via CI collation — even `SMOKE@` hits it), login → token → `/me` 200, unknown email 404. Smoke user removed.
+- Frontend: **untouched logic** (only `MySQL`→`SQL Server` copy in Login.tsx help text + auth.ts comment); 46 vitest passed, `tsc -b`+build clean, eslint clean.
+
+## Docs updated for SQL Server
+
+- `README.md` — prerequisites (SQL Server + ODBC Driver 18), deploy/verify via sqlcmd, odbc_connect DATABASE_URL explanation, troubleshooting table (driver/cert/login/cors), test commands simplified.
+- `PLAN.md` — change record note; all stack mentions (T-SQL, THROW/ROLLBACK, UPDLOCK/HOLDLOCK, pyodbc); completed items checked (scaffold, schema+triggers, auth sync, docs).
+- `project_specification.md` — integrity notes (§4 IMPORTANT block), architecture RDBMS node, API table, stack §6.2, NFR §7: all MySQL/InnoDB/PyMySQL/FOR UPDATE/SIGNAL references replaced.
+- `backend/sql/DESIGN.md` — rewritten for T-SQL: change record, updated_at removal rationale, UPDLOCK/HOLDLOCK locking, trigger rollback semantics, 1442-limitation removal, NVARCHAR/collation notes.
+- Historical MySQL notes **intentionally kept** only as change-record context (schema header, DESIGN change record, PLAN note).
+
+## Conventions update (supersedes Task 1/2 notes)
+
+- Run backend: `cd backend && python -m uvicorn app.main:app --reload`. Tests: `python -m pytest` (no env needed; defaults target `localhost\SQLEXPRESS`).
+- DB conventions: `NVARCHAR` strings, `IDENTITY` PKs, `DECIMAL(12,2)` VND, `created_at` only (no updated_at), CI-collation string matching (emails), trigger errors = transaction aborts (backend must treat `THROW 50001` as retry-able transaction failure).
+- Override test target via `BK88_TEST_DATABASE_URL` if the instance differs (parseable `odbc_connect` URLs only).
+- Still pending (unchanged): seed data `02_seed.sql`, bookings/fields/payments/reports routers, Clerk frontend integration, live-data wiring. Note for the bookings router: row locking should use `WITH (UPDLOCK, HOLDLOCK)`.
+
+---
+
+# Task 5: .gitignore hygiene ✅
+
+Verified via `git check-ignore` that the real secrets/artifacts were already covered: `backend/.env` (root `.env` pattern), `__pycache__/`, `.pytest_cache/`, `frontend/dist/`, `frontend/node_modules/`, vitest/vite logs. Added an **Editors/IDE** section (`.vscode/`, `.idea/`) and an **OS artifacts** section (`Thumbs.db`, `Desktop.ini`, `.DS_Store`). Deleted an accidental empty `backend/package-lock.json` (Node artifact in a Python-only dir; no package.json ever existed). `git status` now shows only tracked-file modifications — zero untracked noise.
+
+---
+
 # Task 3: README "How to run this project" ✅
 
 Rewrote `README.md` (was only a title) with clone-to-running instructions in order: prerequisites → clone → schema deploy (`mysql < backend/sql/01_schema.sql`, Workbench alternative) → backend venv/deps/`.env`/uvicorn (+ auth-mode note) → frontend `npm install`/`.env`/`npm run dev` → sign-up/sign-in walkthrough with DB verification query → test commands (backend `BK88_TEST_DATABASE_URL` pytest, frontend vitest/build/lint) → troubleshooting table → project structure. Uses `YOUR_MYSQL_PASSWORD` placeholders — the real password stays only in the gitignored `backend/.env`.

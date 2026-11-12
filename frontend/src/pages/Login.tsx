@@ -264,8 +264,8 @@ function Login({ onLogin }: { onLogin: (session: AuthSession) => void }) {
 
             <p className="text-xs leading-relaxed text-ink-muted">
               {mode === 'signin'
-                ? 'Accounts live in the MySQL database via the FastAPI backend. The dev API signs you in on email alone; passwords and Google OAuth are verified by Clerk in production.'
-                : 'Creating an account stores your profile in the MySQL USERS table.'}
+                ? 'Accounts live in the SQL Server database via the FastAPI backend. The dev API signs you in on email alone; passwords and Google OAuth are verified by Clerk in production.'
+                : 'Creating an account stores your profile in the SQL Server USERS table.'}
             </p>
 
             <button

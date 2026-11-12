@@ -1,4 +1,4 @@
-"""Authentication: sign-in / sign-up + user sync into the MySQL USERS table.
+"""Authentication: sign-in / sign-up + user sync into the SQL Server USERS table.
 
 Production flow (Clerk configured): the frontend obtains a Clerk session
 JWT (email/password or Google OAuth), then POST /api/auth/sync upserts the

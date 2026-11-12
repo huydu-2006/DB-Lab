@@ -9,7 +9,13 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "BK-88 Stadium API"
-    database_url: str = "mysql+pymysql://root:CHANGE_ME@localhost:3306/bk88_stadium"
+    # SQL Server via SQLAlchemy + pyodbc (odbc_connect = URL-encoded ODBC
+    # connection string; see .env.example).
+    database_url: str = (
+        "mssql+pyodbc:///?odbc_connect=DRIVER%3D%7BODBC+Driver+18+for+SQL+Server"
+        "%7D%3BSERVER%3Dlocalhost%5CSQLEXPRESS%3BDATABASE%3Dbk88_stadium"
+        "%3BTrusted_Connection%3Dyes%3BTrustServerCertificate%3Dyes"
+    )
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Clerk production mode: when CLERK_JWKS_URL is non-empty, Bearer tokens

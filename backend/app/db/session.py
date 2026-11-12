@@ -1,7 +1,9 @@
 """Database engine and helpers (SQLAlchemy 2.0 Core, explicit SQL).
 
 Per PLAN.md the backend executes parameterized SQL directly against the
-InnoDB database — no ORM models.
+Microsoft SQL Server database — no ORM models. SQL Server concurrency
+guarantees (UPDLOCK/HOLDLOCK hints) replace the former MySQL
+SELECT ... FOR UPDATE locking.
 """
 
 from collections.abc import Generator

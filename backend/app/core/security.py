@@ -6,7 +6,7 @@ Two modes (see PLAN.md "Clerk + Google OAuth" with a dev fallback):
   JWTs, verified against Clerk's JWKS endpoint (works for Google OAuth and
   email/password sign-ins alike — Clerk issues the same session tokens).
 * Dev fallback (CLERK_JWKS_URL empty): local HS256 tokens minted by
-  /api/auth/dev/* so sign-in/sign-up against MySQL works without a Clerk
+  /api/auth/dev/* so sign-in/sign-up against SQL Server works without a Clerk
   account. Credentials themselves remain Clerk's job in production; the DB
   stores only profile data plus the clerk_user_id linkage.
 

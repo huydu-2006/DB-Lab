@@ -1,4 +1,4 @@
-"""Sign-in / sign-up API tests against the MySQL USERS table (dev fallback mode).
+"""Sign-in / sign-up API tests against the SQL Server USERS table (dev fallback mode).
 
 These exercise the real database flow: register writes a row into USERS,
 login resolves it, sync upserts Clerk-style identities, /me reads the DB.

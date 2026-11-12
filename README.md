@@ -2,9 +2,9 @@
 
 **BK-88 Stadium** — a full-stack web application for reserving and managing football pitches (5-a-side, 7-a-side, 11-a-side). Final project for the Database Lab course.
 
-Built with **React 19 + TypeScript + Tailwind CSS v4** (frontend), **Python 3.12 + FastAPI** (backend REST API), and **MySQL 8.0+ / InnoDB** (relational database with triggers, CHECK constraints, views, and ACID transactions).
+Built with **React 19 + TypeScript + Tailwind CSS v4** (frontend), **Python 3.12 + FastAPI** (backend REST API), and **Microsoft SQL Server** (relational database with triggers, CHECK constraints, computed columns, views, and ACID transactions).
 
-- Database design: [`backend/sql/01_schema.sql`](backend/sql/01_schema.sql) with rationale in [`backend/sql/DESIGN.md`](backend/sql/DESIGN.md)
+- Database design: [`backend/sql/01_schema.sql`](backend/sql/01_schema.sql) (T-SQL) with rationale in [`backend/sql/DESIGN.md`](backend/sql/DESIGN.md)
 - Prior progress & conventions: [`CURRENT.md`](CURRENT.md)
 
 ---
@@ -20,29 +20,31 @@ Follow the steps below in order after cloning the repository. They take you from
 | Git | any recent | `git --version` |
 | Python | 3.12+ | `python --version` |
 | Node.js | 18+ (20+ recommended) | `node --version` |
-| MySQL Server | 8.0+ | `mysql --version` — and the service running on `localhost:3306` |
+| SQL Server | 2019+ (Express is fine) | `sqlcmd -?` — and the service running |
+
+You also need the **Microsoft ODBC Driver 18 for SQL Server** (installed with SQL Server Management tools; otherwise download from Microsoft) and permission to connect — Windows Authentication is used throughout this guide, so no passwords are stored in the repo.
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/huydu-2006/DB-Lab.git
+git clone <this-repo-url>
 cd DB-Lab
 ```
 
 ### 2. Create the database
 
-Deploy the schema (creates the `bk88_stadium` database, 8 tables, 5 triggers, 3 views, indexes and CHECK constraints — fully idempotent, safe to re-run):
+Deploy the schema (creates the `BK88_STADIUM` database, 8 tables, 5 triggers, 3 views, indexes and CHECK constraints — the script is idempotent, safe to re-run). Adjust `-S` to your server/instance; `-C` trusts the server's self-signed certificate, `-E` uses Windows Authentication:
 
 ```bash
-mysql -u root -p < backend/sql/01_schema.sql
+sqlcmd -S localhost\SQLEXPRESS -E -C -i backend/sql/01_schema.sql
 ```
 
-> No `mysql` CLI? Open **MySQL Workbench**, connect to your local server, and execute the file `backend/sql/01_schema.sql`.
+> No `sqlcmd`? Open **SSMS**, connect to your local server, and execute the file `backend/sql/01_schema.sql`.
 
 Verify:
 
 ```bash
-mysql -u root -p -e "USE bk88_stadium; SHOW TABLES;"
+sqlcmd -S localhost\SQLEXPRESS -E -C -Q "USE BK88_STADIUM; SELECT name FROM sys.tables;"
 ```
 
 ### 3. Set up and start the backend (FastAPI)
@@ -62,10 +64,10 @@ python -m pip install -r requirements.txt
 copy .env.example .env        # macOS / Linux: cp .env.example .env
 ```
 
-Edit `backend/.env` and set your MySQL credentials:
+Edit `backend/.env` and point `DATABASE_URL` at your SQL Server. The connection uses the `mssql+pyodbc` dialect with an URL-encoded ODBC connection string (`Trusted_Connection=yes` for Windows Authentication; swap in `UID=...;PWD=...` for SQL logins if your server uses them):
 
 ```dotenv
-DATABASE_URL=mysql+pymysql://root:YOUR_MYSQL_PASSWORD@localhost:3306/bk88_stadium
+DATABASE_URL=mssql+pyodbc:///?odbc_connect=DRIVER%3D%7BODBC+Driver+18+for+SQL+Server%7D%3BSERVER%3Dlocalhost%5CSQLEXPRESS%3BDATABASE%3Dbk88_stadium%3BTrusted_Connection%3Dyes%3BTrustServerCertificate%3Dyes
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 DEV_AUTH_SECRET=dev-secret-change-me-0123456789abcdef
 ```
@@ -78,7 +80,7 @@ python -m uvicorn app.main:app --reload
 
 If you see `{"status":"ok","auth_mode":"dev-fallback"}` at **http://127.0.0.1:8000/api/health** — the backend is up. The interactive API documentation is at **http://127.0.0.1:8000/docs**.
 
-> **Auth modes:** with `CLERK_JWKS_URL` empty the backend runs in *dev-fallback* mode: sign-up/sign-in works directly against the MySQL `USERS` table (`POST /api/auth/dev/register`, `POST /api/auth/dev/login`). When you later adopt Clerk + Google OAuth (see `PLAN.md`), fill in `CLERK_JWKS_URL` and `CLERK_ISSUER` and the same endpoints switch to Clerk RS256 JWT verification — no code changes required.
+> **Auth modes:** with `CLERK_JWKS_URL` empty the backend runs in *dev-fallback* mode: sign-up/sign-in works directly against the SQL Server `USERS` table (`POST /api/auth/dev/register`, `POST /api/auth/dev/login`). When you later adopt Clerk + Google OAuth (see `PLAN.md`), fill in `CLERK_JWKS_URL` and `CLERK_ISSUER` and the same endpoints switch to Clerk RS256 JWT verification — no code changes required.
 
 ### 4. Set up and start the frontend (React + Vite)
 
@@ -102,18 +104,18 @@ Open **http://localhost:5173**.
 3. Your profile is now stored in the `USERS` table — verify with:
 
 ```bash
-mysql -u root -p -e "SELECT user_id, full_name, email, role FROM bk88_stadium.USERS;"
+sqlcmd -S localhost\SQLEXPRESS -E -C -Q "USE BK88_STADIUM; SELECT user_id, full_name, email, role FROM dbo.USERS;"
 ```
 
 > If the backend isn't running, the login page automatically falls back to an offline demo account: `manager@bk88.vn` / `matchday`.
 
 ### 6. Run the tests
 
-Backend (unit tests + database-backed tests; the suite rebuilds the scratch database `bk88_stadium_test` from `01_schema.sql` itself):
+Backend (8 unit tests + 11 database-backed tests; the suite creates and rebuilds the scratch database `BK88_STADIUM_TEST` from `01_schema.sql` itself — no environment variables needed, the defaults in `tests/conftest.py` point at `localhost\SQLEXPRESS`):
 
 ```bash
 cd backend
-BK88_TEST_DATABASE_URL="mysql+pymysql://root:YOUR_MYSQL_PASSWORD@localhost:3306/bk88_stadium_test" python -m pytest
+python -m pytest
 ```
 
 Frontend:
@@ -129,8 +131,10 @@ npm run lint     # ESLint
 
 | Symptom | Fix |
 | :--- | :--- |
-| `Access denied for user 'root'@'localhost'` | Wrong password in `backend/.env` / mysql command; update `DATABASE_URL` (and the test URL). |
-| `Unknown database 'bk88_stadium'` | Step 2 was skipped — apply `backend/sql/01_schema.sql` again. |
+| `Data source name not found and no default driver specified` | ODBC Driver 18 not installed, or the driver name in `DATABASE_URL` doesn't match an installed driver (check `sqlcmd -?` / ODBC Data Sources). |
+| `certificate chain was issued by an authority that is not trusted` | Add `TrustServerCertificate=yes` to the ODBC connect string (or use the `-C` flag with sqlcmd). |
+| `Login failed for user ...` | Server uses SQL logins: replace `Trusted_Connection%3Dyes` with `UID%3D<user>%3BPWD%3D<password>` in `DATABASE_URL`. |
+| `Cannot open database "bk88_stadium"` | Step 2 was skipped — apply `backend/sql/01_schema.sql` again, and check the `DATABASE=` part of `DATABASE_URL`. |
 | Frontend shows "Could not reach the API backend" | Backend not running (`uvicorn`, step 3) or `VITE_API_URL` in `frontend/.env` doesn't match the API host/port. |
 | Port 8000 already in use | Start uvicorn on another port: `python -m uvicorn app.main:app --reload --port 8001`, and update `VITE_API_URL`. |
 | `CORS policy` errors in the browser console | Add your frontend origin to `CORS_ORIGINS` in `backend/.env` and restart the backend. |
@@ -141,7 +145,7 @@ npm run lint     # ESLint
 DB-Lab/
 ├── backend/
 │   ├── app/                  # FastAPI application (auth, config, db, security)
-│   ├── sql/01_schema.sql     # MySQL schema, triggers, indexes, views
+│   ├── sql/01_schema.sql     # SQL Server (T-SQL) schema, triggers, indexes, views
 │   ├── sql/DESIGN.md         # database design rationale
 │   ├── tests/                # pytest suites (unit + DB-backed)
 │   └── .env.example          # backend environment template

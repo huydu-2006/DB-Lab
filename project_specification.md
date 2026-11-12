@@ -160,10 +160,10 @@ erDiagram
 ```
 
 > [!IMPORTANT]
-> **Key Database Integrity Constraints & Features for DB Lab (MySQL 8.0+)**
-> - **Overlap Prevention:** `BEFORE INSERT` and `BEFORE UPDATE` MySQL triggers on `BOOKINGS` (using `SIGNAL SQLSTATE '45000'`) ensuring no two `CONFIRMED`/`PENDING` bookings on the same `field_id` and `booking_date` have overlapping `[start_time, end_time)` intervals, paired with `SELECT ... FOR UPDATE` row locking in transactions.
-> - **Check Constraints:** `CHECK (end_time > start_time)`, `CHECK (total_amount >= 0)`, `CHECK (quantity > 0)`.
-> - **Transactions:** Atomic booking creation + deposit recording + service stock deduction in InnoDB.
+> **Key Database Integrity Constraints & Features for DB Lab (Microsoft SQL Server)**
+> - **Overlap Prevention:** `AFTER INSERT` and `AFTER UPDATE` T-SQL triggers on `BOOKINGS` (using `ROLLBACK TRANSACTION; THROW 50001`) ensuring no two `CONFIRMED`/`PENDING` bookings on the same `field_id` and `booking_date` have overlapping `[start_time, end_time)` intervals, paired with `SELECT ... WITH (UPDLOCK, HOLDLOCK)` locking in transactions.
+> - **Check Constraints:** `CHECK (end_time > start_time)`, `CHECK (total_amount >= 0)`, `CHECK (quantity > 0)` (CHECK constraints also replace MySQL ENUM domains for roles, statuses, and payment types; `total_amount`/`subtotal` are `PERSISTED` computed columns).
+> - **Transactions:** Atomic booking creation + deposit recording + service stock deduction in SQL Server ACID transactions.
 
 ---
 
@@ -182,7 +182,7 @@ flowchart LR
     end
 
     subgraph DB["Relational Database"]
-        RDBMS[("MySQL 8.0+ (InnoDB)")]
+        RDBMS[("Microsoft SQL Server")]
     end
 
     UI --> State
@@ -194,7 +194,7 @@ flowchart LR
 ### Core REST API Endpoints (Target)
 | Method | Endpoint | Description | Access |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/sync` | Sync authenticated Clerk / Google OAuth user into MySQL `USERS` | Authenticated |
+| `POST` | `/api/auth/sync` | Sync authenticated Clerk / Google OAuth user into the SQL Server `USERS` table | Authenticated |
 | `GET` | `/api/auth/me` | Get current user profile and DB role (`CUSTOMER`/`STAFF`/`ADMIN`) | Authenticated |
 | `GET` | `/api/fields` | List all pitches with filtering by type/status | Public |
 | `GET` | `/api/fields/{id}/availability` | Get time-slot availability for a specific date | Public |
@@ -221,14 +221,14 @@ flowchart LR
 ### 6.2 Backend & Database (`backend/`)
 - **Language & Runtime:** Python `3.12`
 - **Web Framework:** FastAPI + Uvicorn + Pydantic v2
-- **Database Driver / SQL Layer:** `PyMySQL` + SQLAlchemy 2.0 Core/Engine (executing explicit parameterized SQL & ACID transactions for Database Lab requirements)
+- **Database Driver / SQL Layer:** `pyodbc` (ODBC Driver 18) + SQLAlchemy 2.0 Core/Engine (executing explicit parameterized SQL & ACID transactions for Database Lab requirements)
 - **Authentication Verification:** `PyJWT` + `cryptography` (verifying Clerk RS256 session JWTs via Clerk JWKS endpoint)
-- **Relational Database:** **MySQL 8.0+ (InnoDB)**
+- **Relational Database:** **Microsoft SQL Server** (2019+; Express edition is sufficient)
 
 ---
 
 ## 7. Non-Functional Requirements
 - **Responsive Design:** Mobile-first layout supporting both phones (players booking on the go) and desktop screens (stadium command centre).
 - **Theme Support:** Automatic and manual Light/Dark mode compatibility (already established in [Login.tsx](file:///d:/ICT-K69/20261%20semester/Database%20lab/Final%20project/DB-Lab/frontend/src/pages/Login.tsx) and [Dashboard.tsx](file:///d:/ICT-K69/20261%20semester/Database%20lab/Final%20project/DB-Lab/frontend/src/pages/Dashboard.tsx)).
-- **Data Integrity & Concurrency:** MySQL InnoDB ACID transactions + `BEFORE INSERT`/`BEFORE UPDATE` overlap triggers preventing race conditions when two users attempt to book the same pitch slot simultaneously.
+- **Data Integrity & Concurrency:** SQL Server ACID transactions + `AFTER INSERT`/`AFTER UPDATE` overlap triggers preventing race conditions when two users attempt to book the same pitch slot simultaneously.
 - **Security:** Clerk + Google OAuth RS256 JWT validation, parameterized SQL queries to prevent SQL injection, and RBAC route dependencies.

@@ -3,7 +3,7 @@ import type { Credentials } from './types'
 /**
  * Offline demo credentials — used only when the FastAPI backend is
  * unreachable (dev machines without the server running). Real accounts live
- * in the MySQL USERS table via POST /api/auth/dev/register.
+ * in the SQL Server USERS table via POST /api/auth/dev/register.
  */
 export const DEMO_EMAIL = 'manager@bk88.vn'
 export const DEMO_PASSWORD = 'matchday'
